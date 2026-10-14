@@ -18,3 +18,28 @@ Fecha de registro: 14 de octubre de 2026.
 Para evitar cuentas duplicadas, si el email ya existe en el registro público o en el alta administrativa, la API responderá HTTP 409 con código `EMAIL_DUPLICADO` en formato RFC 9457 y no creará otra cuenta. Este criterio no es una decisión numerada del Anexo E ni está confirmado por la cátedra.
 
 El registro detallado de decisiones pendientes y adoptadas está en [`docs/decisiones-pendientes.md`](docs/decisiones-pendientes.md). Estas elecciones no resuelven otros puntos del Anexo E.
+
+## Configuración local de identidad
+
+La API requiere PostgreSQL 16 y Redis 7.4 accesibles localmente. Copiá `.env.example` a `.env`, reemplazá todos los marcadores y exportá sus variables antes de iniciar. `JWT_SECRET` debe ser Base64 de al menos 32 bytes aleatorios y `ADMIN_PASSWORD_HASH` un hash BCrypt strength 12; no pongas los valores reales en este README ni en Git. El `.gitignore` excluye `.env` y conserva `.env.example` versionado.
+
+Desde la raíz del repositorio, en macOS/Linux:
+
+```sh
+cp .env.example .env
+# Editar .env y reemplazar los marcadores antes de continuar.
+set -a
+source .env
+set +a
+cd backend
+./mvnw spring-boot:run -Dspring-boot.run.profiles=migrador
+```
+
+Cuando el migrador termina correctamente, iniciá la API en otra terminal con las mismas variables exportadas:
+
+```sh
+cd backend
+./mvnw spring-boot:run -Dspring-boot.run.profiles=api
+```
+
+Para desarrollo sin HTTPS en `localhost`, se puede configurar `AUTH_COOKIE_SECURE=false`; mantener `AUTH_COOKIE_SAME_SITE=Lax`. Docker Compose y el enrutamiento mismo-origen todavía no forman parte de esta etapa.

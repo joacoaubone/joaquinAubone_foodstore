@@ -2,6 +2,7 @@ package ar.edu.utn.frm.foodstore.core.error;
 
 import ar.edu.utn.frm.foodstore.auth.PasswordExecutorSaturatedException;
 import ar.edu.utn.frm.foodstore.auth.EmailAlreadyExistsException;
+import ar.edu.utn.frm.foodstore.auth.InvalidCredentialsException;
 import java.net.URI;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -30,6 +31,15 @@ public class ApiExceptionHandler {
                 "Email duplicado",
                 "Ya existe una cuenta registrada con ese email.",
                 "EMAIL_DUPLICADO");
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ProblemDetail> handleInvalidCredentials(InvalidCredentialsException exception) {
+        return problem(
+                HttpStatus.UNAUTHORIZED,
+                "Credenciales inválidas",
+                "Email o contraseña incorrectos.",
+                "CREDENCIALES_INVALIDAS");
     }
 
     private ResponseEntity<ProblemDetail> problem(

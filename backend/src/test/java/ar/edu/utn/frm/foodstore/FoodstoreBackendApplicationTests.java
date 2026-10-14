@@ -7,6 +7,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import jakarta.servlet.http.Cookie;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -159,6 +160,100 @@ class FoodstoreBackendApplicationTests {
             start.countDown();
             requests.shutdownNow();
         }
+    }
+
+    @Test
+    void loginSetsSecureHttpOnlySessionCookiesAndReturnsOnlyAccessExpiry() throws Exception {
+        String email = "login-" + UUID.randomUUID() + "@example.test";
+        register(email, "password-123");
+
+        var response = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"%s","password":"password-123"}
+                                """.formatted(email)))
+                .andReturn()
+                .getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getContentAsString()).contains("expira_en");
+        assertThat(response.getContentAsString())
+                .doesNotContain("access_token", "refresh_token", "accessToken", "refreshToken");
+        List<String> cookies = response.getHeaders("Set-Cookie");
+        assertThat(cookies).hasSize(2);
+        assertThat(cookies).anySatisfy(cookie -> assertThat(cookie)
+                .startsWith("access_token=")
+                .contains("Path=/api/v1", "Max-Age=1800", "HttpOnly", "Secure", "SameSite=Lax"));
+        assertThat(cookies).anySatisfy(cookie -> assertThat(cookie)
+                .startsWith("refresh_token=")
+                .contains("Path=/api/v1/auth/refresh", "Max-Age=604800", "HttpOnly", "Secure", "SameSite=Lax"));
+    }
+
+    @Test
+    void invalidLoginDoesNotRevealWhetherEmailExists() throws Exception {
+        String email = "invalid-login-" + UUID.randomUUID() + "@example.test";
+        register(email, "password-123");
+
+        var wrongPassword = login(email, "wrong-password").getResponse();
+        var unknownEmail = login("unknown-" + UUID.randomUUID() + "@example.test", "wrong-password").getResponse();
+
+        assertThat(wrongPassword.getStatus()).isEqualTo(401);
+        assertThat(unknownEmail.getStatus()).isEqualTo(401);
+        assertThat(wrongPassword.getContentAsString()).isEqualTo(unknownEmail.getContentAsString());
+        assertThat(wrongPassword.getContentAsString()).contains("CREDENCIALES_INVALIDAS");
+    }
+
+    @Test
+    void logoutExpiresBothSessionCookiesWithMatchingSecurityAttributes() throws Exception {
+        String email = "logout-" + UUID.randomUUID() + "@example.test";
+        register(email, "password-123");
+        var loginResponse = login(email, "password-123").getResponse();
+        String accessToken = cookieValue(loginResponse.getHeaders("Set-Cookie"), "access_token");
+
+        var logoutResponse = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/auth/logout")
+                        .cookie(new Cookie("access_token", accessToken)))
+                .andReturn()
+                .getResponse();
+
+        assertThat(logoutResponse.getStatus()).isEqualTo(204);
+        List<String> cookies = logoutResponse.getHeaders("Set-Cookie");
+        assertThat(cookies).hasSize(2);
+        assertThat(cookies).anySatisfy(cookie -> assertThat(cookie)
+                .startsWith("access_token=")
+                .contains("Path=/api/v1", "Max-Age=0", "HttpOnly", "Secure", "SameSite=Lax"));
+        assertThat(cookies).anySatisfy(cookie -> assertThat(cookie)
+                .startsWith("refresh_token=")
+                .contains("Path=/api/v1/auth/refresh", "Max-Age=0", "HttpOnly", "Secure", "SameSite=Lax"));
+    }
+
+    private void register(String email, String password) throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"%s","password":"%s"}
+                                """.formatted(email, password)))
+                .andReturn();
+    }
+
+    private org.springframework.test.web.servlet.MvcResult login(String email, String password) throws Exception {
+        return mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"%s","password":"%s"}
+                                """.formatted(email, password)))
+                .andReturn();
+    }
+
+    private static String cookieValue(List<String> cookies, String name) {
+        return cookies.stream()
+                .filter(cookie -> cookie.startsWith(name + "="))
+                .map(cookie -> cookie.substring(name.length() + 1, cookie.indexOf(';')))
+                .findFirst()
+                .orElseThrow();
     }
 
     private record RegistrationOutcome(int status, String body) {

@@ -4,6 +4,7 @@ import ar.edu.utn.frm.foodstore.auth.PasswordExecutorSaturatedException;
 import ar.edu.utn.frm.foodstore.auth.EmailAlreadyExistsException;
 import ar.edu.utn.frm.foodstore.auth.InvalidCredentialsException;
 import ar.edu.utn.frm.foodstore.auth.InvalidSessionException;
+import ar.edu.utn.frm.foodstore.auth.TooManyLoginAttemptsException;
 import java.util.List;
 import java.net.URI;
 import org.springframework.http.HttpStatus;
@@ -43,6 +44,15 @@ public class ApiExceptionHandler {
                 "Credenciales inválidas",
                 "Email o contraseña incorrectos.",
                 "CREDENCIALES_INVALIDAS");
+    }
+
+    @ExceptionHandler(TooManyLoginAttemptsException.class)
+    public ResponseEntity<ProblemDetail> handleTooManyLoginAttempts(TooManyLoginAttemptsException exception) {
+        return problem(
+                HttpStatus.TOO_MANY_REQUESTS,
+                "Límite de intentos superado",
+                "Se superó el límite de intentos de login. Intentá nuevamente más tarde.",
+                "LIMITE_INTENTOS_SUPERADO");
     }
 
     @ExceptionHandler(InvalidSessionException.class)

@@ -8,13 +8,29 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import ar.edu.utn.frm.foodstore.auth.PasswordHashingService;
+import ar.edu.utn.frm.foodstore.auth.AuthenticationController;
+import ar.edu.utn.frm.foodstore.auth.AuthenticationService;
+import ar.edu.utn.frm.foodstore.auth.JwtTokenService;
+import ar.edu.utn.frm.foodstore.auth.LoginAttemptLimiter;
+import ar.edu.utn.frm.foodstore.auth.LoginAttemptRepository;
+import ar.edu.utn.frm.foodstore.auth.TooManyLoginAttemptsException;
+import ar.edu.utn.frm.foodstore.auth.UserAccountRepository;
+import ar.edu.utn.frm.foodstore.auth.SessionCookieFactory;
+import ar.edu.utn.frm.foodstore.core.ports.LoginAttemptRedisPort;
 import jakarta.servlet.http.Cookie;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
+import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -40,6 +56,10 @@ class FoodstoreBackendApplicationTests {
             .withUsername("foodstore")
             .withPassword("test-password");
 
+    @Container
+    static final GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7.4-alpine"))
+            .withExposedPorts(6379);
+
     @Autowired
     JdbcTemplate jdbcTemplate;
 
@@ -49,12 +69,25 @@ class FoodstoreBackendApplicationTests {
     @Autowired
     PasswordHashingService passwordHashingService;
 
+    @Autowired
+    LoginAttemptRepository loginAttemptRepository;
+
+    @Autowired
+    UserAccountRepository userAccountRepository;
+
+    @Autowired
+    JwtTokenService jwtTokenService;
+
+    @Autowired
+    SessionCookieFactory sessionCookieFactory;
+
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
         registry.add("DATABASE_URL", postgres::getJdbcUrl);
         registry.add("DATABASE_USERNAME", postgres::getUsername);
         registry.add("DATABASE_PASSWORD", postgres::getPassword);
         registry.add("ADMIN_PASSWORD_HASH", () -> TEST_ADMIN_HASH);
+        registry.add("REDIS_URL", () -> "redis://%s:%d/0".formatted(redis.getHost(), redis.getMappedPort(6379)));
     }
 
     @Test
@@ -375,6 +408,55 @@ class FoodstoreBackendApplicationTests {
         assertThat(response.getContentAsString()).contains("CUERPO_INVALIDO", "email", "password");
     }
 
+    @Test
+    void loginRateLimitReturns429AfterFiveFailedAttemptsAndPersistsEveryAttempt() throws Exception {
+        String email = "rate-limit-" + UUID.randomUUID() + "@example.test";
+
+        for (int attempt = 0; attempt < 5; attempt++) {
+            assertThat(login(email, "wrong-password").getResponse().getStatus()).isEqualTo(401);
+        }
+        var blocked = login(email, "wrong-password").getResponse();
+
+        assertThat(blocked.getStatus()).isEqualTo(429);
+        assertThat(blocked.getContentType()).isEqualTo(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        assertThat(blocked.getContentAsString()).contains("LIMITE_INTENTOS_SUPERADO");
+        Long recordedAttempts = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM intento_acceso WHERE email = ? AND exitoso = FALSE
+                """, Long.class, email);
+        assertThat(recordedAttempts).isEqualTo(6);
+    }
+
+    @Test
+    void loginRateLimitFallsBackToPostgresAndReconcilesAfterRedisRecovery() throws Exception {
+        String email = "rate-fallback-" + UUID.randomUUID() + "@example.test";
+        SwitchableRedisCounter redisCounter = new SwitchableRedisCounter(false);
+        LoginAttemptLimiter fallbackLimiter = new LoginAttemptLimiter(
+                loginAttemptRepository, redisCounter, 5, Duration.ofMinutes(15));
+        AuthenticationService fallbackAuthentication = new AuthenticationService(
+                userAccountRepository, passwordHashingService, jwtTokenService, fallbackLimiter);
+        MockMvc fallbackMockMvc = MockMvcBuilders
+                .standaloneSetup(new AuthenticationController(fallbackAuthentication, sessionCookieFactory))
+                .setControllerAdvice(new ar.edu.utn.frm.foodstore.core.error.ApiExceptionHandler())
+                .build();
+
+        for (int attempt = 0; attempt < 5; attempt++) {
+            assertThat(login(fallbackMockMvc, email, "wrong-password").getResponse().getStatus()).isEqualTo(401);
+        }
+        var blockedWhileRedisIsUnavailable = login(fallbackMockMvc, email, "wrong-password").getResponse();
+        assertThat(blockedWhileRedisIsUnavailable.getStatus()).isEqualTo(429);
+        assertThat(blockedWhileRedisIsUnavailable.getContentAsString()).contains("LIMITE_INTENTOS_SUPERADO");
+
+        redisCounter.setAvailable(true);
+        var blockedAfterRedisRecovery = login(fallbackMockMvc, email, "wrong-password").getResponse();
+
+        assertThat(blockedAfterRedisRecovery.getStatus()).isEqualTo(429);
+        assertThat(redisCounter.currentCount(email)).isEqualTo(7L);
+        Long recordedAttempts = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM intento_acceso WHERE email = ? AND exitoso = FALSE
+                """, Long.class, email);
+        assertThat(recordedAttempts).isEqualTo(7);
+    }
+
     private void register(String email, String password) throws Exception {
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                         .post("/api/v1/auth/register")
@@ -386,7 +468,12 @@ class FoodstoreBackendApplicationTests {
     }
 
     private org.springframework.test.web.servlet.MvcResult login(String email, String password) throws Exception {
-        return mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+        return login(mockMvc, email, password);
+    }
+
+    private org.springframework.test.web.servlet.MvcResult login(MockMvc target, String email, String password)
+            throws Exception {
+        return target.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                         .post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -418,5 +505,49 @@ class FoodstoreBackendApplicationTests {
     }
 
     private record RegistrationOutcome(int status, String body) {
+    }
+
+    private static final class SwitchableRedisCounter implements LoginAttemptRedisPort {
+
+        private final Map<String, Long> counts = new ConcurrentHashMap<>();
+        private volatile boolean available;
+
+        private SwitchableRedisCounter(boolean available) {
+            this.available = available;
+        }
+
+        @Override
+        public Long currentCount(String email) {
+            requireAvailable();
+            return counts.get(email);
+        }
+
+        @Override
+        public long increment(String email, Duration window) {
+            requireAvailable();
+            return counts.merge(email, 1L, Long::sum);
+        }
+
+        @Override
+        public void seedIfMissing(String email, long count, Duration window) {
+            requireAvailable();
+            counts.putIfAbsent(email, count);
+        }
+
+        @Override
+        public void replaceCount(String email, long count, Duration window) {
+            requireAvailable();
+            counts.put(email, count);
+        }
+
+        private void setAvailable(boolean available) {
+            this.available = available;
+        }
+
+        private void requireAvailable() {
+            if (!available) {
+                throw new RedisConnectionFailureException("Redis de prueba no disponible");
+            }
+        }
     }
 }

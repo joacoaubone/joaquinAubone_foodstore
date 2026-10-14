@@ -10,21 +10,36 @@ public class AuthenticationService {
     private final UserAccountRepository userAccountRepository;
     private final PasswordHashingService passwordHashingService;
     private final JwtTokenService jwtTokenService;
+    private final LoginAttemptLimiter loginAttemptLimiter;
 
     public AuthenticationService(
             UserAccountRepository userAccountRepository,
             PasswordHashingService passwordHashingService,
-            JwtTokenService jwtTokenService) {
+            JwtTokenService jwtTokenService,
+            LoginAttemptLimiter loginAttemptLimiter) {
         this.userAccountRepository = userAccountRepository;
         this.passwordHashingService = passwordHashingService;
         this.jwtTokenService = jwtTokenService;
+        this.loginAttemptLimiter = loginAttemptLimiter;
     }
 
     public IssuedSessionTokens login(LoginRequest request) {
+        if (loginAttemptLimiter.isLimitExceeded(request.email())) {
+            loginAttemptLimiter.recordAttempt(request.email(), false);
+            throw new TooManyLoginAttemptsException();
+        }
+
         var account = userAccountRepository.findCredentialsByEmail(request.email());
         String hashToVerify = account.map(StoredUserAccount::passwordHash).orElse(DUMMY_PASSWORD_HASH);
-        boolean passwordMatches = passwordHashingService.matches(request.password(), hashToVerify);
+        boolean passwordMatches;
+        try {
+            passwordMatches = passwordHashingService.matches(request.password(), hashToVerify);
+        } catch (PasswordExecutorSaturatedException exception) {
+            loginAttemptLimiter.recordAttempt(request.email(), false);
+            throw exception;
+        }
 
+        loginAttemptLimiter.recordAttempt(request.email(), account.isPresent() && passwordMatches);
         if (account.isEmpty() || !passwordMatches) {
             throw new InvalidCredentialsException();
         }

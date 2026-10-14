@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -38,5 +39,14 @@ public class AuthenticationController {
         headers.add(HttpHeaders.SET_COOKIE, cookieFactory.clearAccessToken().toString());
         headers.add(HttpHeaders.SET_COOKIE, cookieFactory.clearRefreshToken().toString());
         return new ResponseEntity<>(headers, HttpStatus.NO_CONTENT);
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<SessionInfo> refresh(
+            @CookieValue(name = "refresh_token", required = false) String refreshToken) {
+        JwtTokenService.IssuedAccessToken accessToken = authenticationService.refresh(refreshToken);
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.SET_COOKIE, cookieFactory.accessToken(accessToken.token()).toString());
+        return new ResponseEntity<>(accessToken.sessionInfo(), headers, HttpStatus.OK);
     }
 }

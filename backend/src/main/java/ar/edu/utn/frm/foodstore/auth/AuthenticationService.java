@@ -31,4 +31,9 @@ public class AuthenticationService {
 
         return jwtTokenService.issue(account.orElseThrow().identity());
     }
+
+    public JwtTokenService.IssuedAccessToken refresh(String refreshToken) {
+        UserIdentity identity = jwtTokenService.parseRefresh(refreshToken);
+        return jwtTokenService.issueAccess(identity);
+    }
 }

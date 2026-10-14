@@ -23,6 +23,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 @SpringBootTest
 @ActiveProfiles({"api", "test"})
@@ -226,6 +227,54 @@ class FoodstoreBackendApplicationTests {
         assertThat(cookies).anySatisfy(cookie -> assertThat(cookie)
                 .startsWith("refresh_token=")
                 .contains("Path=/api/v1/auth/refresh", "Max-Age=0", "HttpOnly", "Secure", "SameSite=Lax"));
+    }
+
+    @Test
+    void refreshUsesOnlyRefreshTokenAndDoesNotRotateIt() throws Exception {
+        String email = "refresh-" + UUID.randomUUID() + "@example.test";
+        register(email, "password-123");
+        var loginResponse = login(email, "password-123").getResponse();
+        String refreshToken = cookieValue(loginResponse.getHeaders("Set-Cookie"), "refresh_token");
+
+        var refreshResponse = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/auth/refresh")
+                        .cookie(new Cookie("refresh_token", refreshToken)))
+                .andReturn()
+                .getResponse();
+
+        assertThat(refreshResponse.getStatus()).isEqualTo(200);
+        assertThat(refreshResponse.getContentAsString()).contains("expira_en");
+        List<String> cookies = refreshResponse.getHeaders("Set-Cookie");
+        assertThat(cookies).hasSize(1);
+        assertThat(cookies.getFirst()).startsWith("access_token=").contains("Max-Age=1800", "HttpOnly", "Secure");
+    }
+
+    @Test
+    void invalidOrWrongTypeTokensReturnRfc9457SessionError() throws Exception {
+        String email = "token-type-" + UUID.randomUUID() + "@example.test";
+        register(email, "password-123");
+        var loginResponse = login(email, "password-123").getResponse();
+        String accessToken = cookieValue(loginResponse.getHeaders("Set-Cookie"), "access_token");
+        String refreshToken = cookieValue(loginResponse.getHeaders("Set-Cookie"), "refresh_token");
+
+        var refreshWithAccess = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/auth/refresh")
+                        .cookie(new Cookie("refresh_token", accessToken)))
+                .andReturn()
+                .getResponse();
+        var protectedWithRefresh = mockMvc.perform(get("/api/v1/auth/me")
+                        .cookie(new Cookie("access_token", refreshToken)))
+                .andReturn()
+                .getResponse();
+        var protectedWithoutToken = mockMvc.perform(get("/api/v1/auth/me"))
+                .andReturn()
+                .getResponse();
+
+        for (var response : List.of(refreshWithAccess, protectedWithRefresh, protectedWithoutToken)) {
+            assertThat(response.getStatus()).isEqualTo(401);
+            assertThat(response.getContentType()).isEqualTo(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+            assertThat(response.getContentAsString()).contains("SESION_INVALIDA");
+        }
     }
 
     private void register(String email, String password) throws Exception {

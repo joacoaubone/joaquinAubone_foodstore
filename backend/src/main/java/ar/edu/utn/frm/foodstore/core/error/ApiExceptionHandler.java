@@ -3,6 +3,7 @@ package ar.edu.utn.frm.foodstore.core.error;
 import ar.edu.utn.frm.foodstore.auth.PasswordExecutorSaturatedException;
 import ar.edu.utn.frm.foodstore.auth.EmailAlreadyExistsException;
 import ar.edu.utn.frm.foodstore.auth.InvalidCredentialsException;
+import ar.edu.utn.frm.foodstore.auth.InvalidSessionException;
 import java.net.URI;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -40,6 +41,15 @@ public class ApiExceptionHandler {
                 "Credenciales inválidas",
                 "Email o contraseña incorrectos.",
                 "CREDENCIALES_INVALIDAS");
+    }
+
+    @ExceptionHandler(InvalidSessionException.class)
+    public ResponseEntity<ProblemDetail> handleInvalidSession(InvalidSessionException exception) {
+        return problem(
+                HttpStatus.UNAUTHORIZED,
+                "Sesión inválida",
+                "La cookie de sesión no es válida.",
+                "SESION_INVALIDA");
     }
 
     private ResponseEntity<ProblemDetail> problem(

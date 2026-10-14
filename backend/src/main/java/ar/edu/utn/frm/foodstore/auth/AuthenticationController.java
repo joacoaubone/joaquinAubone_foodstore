@@ -7,6 +7,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -48,5 +50,10 @@ public class AuthenticationController {
         HttpHeaders headers = new HttpHeaders();
         headers.add(HttpHeaders.SET_COOKIE, cookieFactory.accessToken(accessToken.token()).toString());
         return new ResponseEntity<>(accessToken.sessionInfo(), headers, HttpStatus.OK);
+    }
+
+    @GetMapping("/me")
+    public UserIdentity currentIdentity(@AuthenticationPrincipal UserIdentity identity) {
+        return identity;
     }
 }

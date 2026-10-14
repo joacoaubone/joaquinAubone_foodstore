@@ -104,6 +104,9 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+				<configuration>
+					<mainClass>ar.edu.utn.frm.foodstore.FoodstoreBackendApplication</mainClass>
+				</configuration>
 			</plugin>
 		</plugins>
 	</build>

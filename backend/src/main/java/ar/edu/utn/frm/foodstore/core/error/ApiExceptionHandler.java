@@ -4,6 +4,7 @@ import ar.edu.utn.frm.foodstore.auth.PasswordExecutorSaturatedException;
 import ar.edu.utn.frm.foodstore.auth.EmailAlreadyExistsException;
 import ar.edu.utn.frm.foodstore.auth.InvalidCredentialsException;
 import ar.edu.utn.frm.foodstore.auth.InvalidSessionException;
+import java.util.List;
 import java.net.URI;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -11,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -50,6 +52,25 @@ public class ApiExceptionHandler {
                 "Sesión inválida",
                 "La cookie de sesión no es válida.",
                 "SESION_INVALIDA");
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ProblemDetail> handleInvalidRequestBody(MethodArgumentNotValidException exception) {
+        List<String> invalidFields = exception.getBindingResult().getFieldErrors().stream()
+                .map(error -> error.getField())
+                .distinct()
+                .sorted()
+                .toList();
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                "Uno o más campos del cuerpo no son válidos.");
+        problem.setType(URI.create("about:blank"));
+        problem.setTitle("Cuerpo inválido");
+        problem.setProperty("codigo", "CUERPO_INVALIDO");
+        problem.setProperty("campos", invalidFields);
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problem);
     }
 
     private ResponseEntity<ProblemDetail> problem(

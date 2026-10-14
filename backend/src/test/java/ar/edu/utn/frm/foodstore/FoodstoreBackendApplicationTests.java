@@ -7,6 +7,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import ar.edu.utn.frm.foodstore.auth.PasswordHashingService;
 import jakarta.servlet.http.Cookie;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -44,6 +45,9 @@ class FoodstoreBackendApplicationTests {
 
     @Autowired
     MockMvc mockMvc;
+
+    @Autowired
+    PasswordHashingService passwordHashingService;
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -277,6 +281,100 @@ class FoodstoreBackendApplicationTests {
         }
     }
 
+    @Test
+    void currentIdentityComesFromTheAuthenticatedAccessToken() throws Exception {
+        String email = "identity-" + UUID.randomUUID() + "@example.test";
+        register(email, "password-123");
+        String accessToken = cookieValue(login(email, "password-123").getResponse().getHeaders("Set-Cookie"),
+                "access_token");
+
+        var response = mockMvc.perform(get("/api/v1/auth/me")
+                        .cookie(new Cookie("access_token", accessToken)))
+                .andReturn()
+                .getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getContentAsString()).contains(email, "CLIENTE");
+        assertThat(response.getContentAsString()).doesNotContain("password", "password_hash", "token");
+    }
+
+    @Test
+    void accountProvisioningRequiresAdminAndAcceptsOnlySupportedRoles() throws Exception {
+        String clientEmail = "provision-client-" + UUID.randomUUID() + "@example.test";
+        register(clientEmail, "password-123");
+        String clientAccessToken = cookieValue(
+                login(clientEmail, "password-123").getResponse().getHeaders("Set-Cookie"), "access_token");
+        String proposedUserEmail = "stock-" + UUID.randomUUID() + "@example.test";
+
+        var anonymousResponse = createUser(proposedUserEmail, "stock-password", "STOCK", null).getResponse();
+        var clientResponse = createUser(
+                proposedUserEmail, "stock-password", "STOCK", clientAccessToken).getResponse();
+
+        assertThat(anonymousResponse.getStatus()).isEqualTo(401);
+        assertThat(clientResponse.getStatus()).isEqualTo(403);
+        assertThat(clientResponse.getContentAsString()).contains("ROL_INSUFICIENTE");
+        Long unauthorizedAccounts = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM usuario WHERE email = ?", Long.class, proposedUserEmail);
+        assertThat(unauthorizedAccounts).isZero();
+
+        String adminPassword = "admin-login-" + UUID.randomUUID();
+        jdbcTemplate.update(
+                "UPDATE usuario SET password_hash = ? WHERE email = 'admin@example.test'",
+                passwordHashingService.hash(adminPassword));
+        String adminAccessToken = cookieValue(
+                login("admin@example.test", adminPassword).getResponse().getHeaders("Set-Cookie"), "access_token");
+        var adminResponse = createUser(proposedUserEmail, "stock-password", "STOCK", adminAccessToken)
+                .getResponse();
+
+        assertThat(adminResponse.getStatus()).isEqualTo(201);
+        assertThat(adminResponse.getContentAsString()).contains("STOCK");
+        assertThat(adminResponse.getContentAsString()).doesNotContain("password", "password_hash", "token");
+    }
+
+    @Test
+    void publicRegistrationCannotChooseAnElevatedRole() throws Exception {
+        String email = "role-injection-" + UUID.randomUUID() + "@example.test";
+
+        var response = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"%s","password":"password-123","rol_codigo":"ADMIN"}
+                                """.formatted(email)))
+                .andReturn()
+                .getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(201);
+        Long adminRoleCount = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM usuario u
+                JOIN usuario_rol ur ON ur.usuario_id = u.id
+                WHERE u.email = ? AND ur.rol_codigo = 'ADMIN'
+                """, Long.class, email);
+        Long customerRoleCount = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM usuario u
+                JOIN usuario_rol ur ON ur.usuario_id = u.id
+                WHERE u.email = ? AND ur.rol_codigo = 'CLIENTE'
+                """, Long.class, email);
+        assertThat(adminRoleCount).isZero();
+        assertThat(customerRoleCount).isEqualTo(1);
+    }
+
+    @Test
+    void invalidRequestBodyUsesTheAdoptedProblemCodeAndFieldList() throws Exception {
+        var response = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"not-an-email","password":"short"}
+                                """))
+                .andReturn()
+                .getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(422);
+        assertThat(response.getContentType()).isEqualTo(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        assertThat(response.getContentAsString()).contains("CUERPO_INVALIDO", "email", "password");
+    }
+
     private void register(String email, String password) throws Exception {
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                         .post("/api/v1/auth/register")
@@ -295,6 +393,20 @@ class FoodstoreBackendApplicationTests {
                                 {"email":"%s","password":"%s"}
                                 """.formatted(email, password)))
                 .andReturn();
+    }
+
+    private org.springframework.test.web.servlet.MvcResult createUser(
+            String email, String password, String role, String accessToken) throws Exception {
+        var request = org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                .post("/api/v1/usuarios")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"email":"%s","password":"%s","rol_codigo":"%s"}
+                        """.formatted(email, password, role));
+        if (accessToken != null) {
+            request.cookie(new Cookie("access_token", accessToken));
+        }
+        return mockMvc.perform(request).andReturn();
     }
 
     private static String cookieValue(List<String> cookies, String name) {

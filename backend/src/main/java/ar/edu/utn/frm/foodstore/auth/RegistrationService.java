@@ -21,13 +21,22 @@ public class RegistrationService {
 
     @Transactional
     public UserIdentity registerCustomer(RegisterRequest request) {
-        if (userAccountRepository.emailExists(request.email())) {
+        return createUser(request.email(), request.password(), CUSTOMER_ROLE);
+    }
+
+    @Transactional
+    public UserIdentity provision(AdminUserCreateRequest request) {
+        return createUser(request.email(), request.password(), request.rol_codigo());
+    }
+
+    private UserIdentity createUser(String email, String password, String roleCode) {
+        if (userAccountRepository.emailExists(email)) {
             throw new EmailAlreadyExistsException();
         }
 
-        String passwordHash = passwordHashingService.hash(request.password());
+        String passwordHash = passwordHashingService.hash(password);
         try {
-            return userAccountRepository.create(request.email(), passwordHash, CUSTOMER_ROLE);
+            return userAccountRepository.create(email, passwordHash, roleCode);
         } catch (DuplicateKeyException exception) {
             // The unique database constraint resolves races after the initial existence check.
             throw new EmailAlreadyExistsException();

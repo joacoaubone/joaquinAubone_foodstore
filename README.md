@@ -13,4 +13,8 @@ Fecha de registro: 14 de octubre de 2026.
 | D-28 | `SesionInfo.expira_en` informará el vencimiento del access token (30 minutos), no el vencimiento del refresh token (7 días) ni la duración total de la sesión. | Pendiente de confirmación |
 | D-29 | Los errores de validación responderán HTTP 422 con código `CUERPO_INVALIDO` y la lista de campos inválidos. El rechazo por saturación del executor BCrypt responderá HTTP 503 con código `SERVICIO_SATURADO`. | Propuesta mínima adoptada por el proyecto; pendiente de confirmación |
 
+### Criterio adicional del proyecto
+
+Para evitar cuentas duplicadas, si el email ya existe en el registro público o en el alta administrativa, la API responderá HTTP 409 con código `EMAIL_DUPLICADO` en formato RFC 9457 y no creará otra cuenta. Este criterio no es una decisión numerada del Anexo E ni está confirmado por la cátedra.
+
 El registro detallado de decisiones pendientes y adoptadas está en [`docs/decisiones-pendientes.md`](docs/decisiones-pendientes.md). Estas elecciones no resuelven otros puntos del Anexo E.

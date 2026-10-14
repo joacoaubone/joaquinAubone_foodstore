@@ -1,6 +1,7 @@
 package ar.edu.utn.frm.foodstore.core.error;
 
 import ar.edu.utn.frm.foodstore.auth.PasswordExecutorSaturatedException;
+import ar.edu.utn.frm.foodstore.auth.EmailAlreadyExistsException;
 import java.net.URI;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -15,14 +16,30 @@ public class ApiExceptionHandler {
     @ExceptionHandler(PasswordExecutorSaturatedException.class)
     public ResponseEntity<ProblemDetail> handlePasswordExecutorSaturation(
             PasswordExecutorSaturatedException exception) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+        return problem(
                 HttpStatus.SERVICE_UNAVAILABLE,
-                "El servicio está temporalmente saturado. Intentá nuevamente más tarde.");
-        problem.setType(URI.create("about:blank"));
-        problem.setTitle("Servicio saturado");
-        problem.setProperty("codigo", "SERVICIO_SATURADO");
+                "Servicio saturado",
+                "El servicio está temporalmente saturado. Intentá nuevamente más tarde.",
+                "SERVICIO_SATURADO");
+    }
 
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+    @ExceptionHandler(EmailAlreadyExistsException.class)
+    public ResponseEntity<ProblemDetail> handleDuplicateEmail(EmailAlreadyExistsException exception) {
+        return problem(
+                HttpStatus.CONFLICT,
+                "Email duplicado",
+                "Ya existe una cuenta registrada con ese email.",
+                "EMAIL_DUPLICADO");
+    }
+
+    private ResponseEntity<ProblemDetail> problem(
+            HttpStatus status, String title, String detail, String code) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
+        problem.setType(URI.create("about:blank"));
+        problem.setTitle(title);
+        problem.setProperty("codigo", code);
+
+        return ResponseEntity.status(status)
                 .contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .body(problem);
     }

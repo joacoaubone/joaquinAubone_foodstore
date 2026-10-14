@@ -2,14 +2,17 @@
 
 ## Decisiones de diseño adoptadas para avanzar
 
-Las siguientes decisiones se adoptan como **criterios del proyecto** para implementar la Etapa 2. No se presentan como decisiones confirmadas por la cátedra ni como requisitos que ya estuvieran vigentes en la consigna. Se registran para que la implementación y su corrección usen un criterio explícito. Si la cátedra indica otro criterio, se actualizarán antes de cerrar la entrega.
+Las siguientes decisiones se adoptan como **criterios del proyecto** para avanzar. No se presentan como decisiones confirmadas por la cátedra ni como requisitos que ya estuvieran vigentes en la consigna. Se registran para que la implementación y su corrección usen un criterio explícito. Si la cátedra indica otro criterio, se actualizarán antes de cerrar la entrega.
 
 Fecha de registro: 14 de octubre de 2026.
 
 | ID | Decisión adoptada por el proyecto | Estado frente a la cátedra |
 | --- | --- | --- |
+| D-11 | En desarrollo, Vite reenviará `/api` al backend para que el navegador use un solo origen y las cookies viajen sin CORS adicional. La topología para servir el frontend desde Docker Compose queda pendiente. | Adoptada para desarrollo; Compose pendiente |
+| D-14 | Ante un `401` de `fetch`, el cliente llamará a `/api/v1/auth/refresh` una sola vez y repetirá la petición original una sola vez. Si el refresh falla, limpiará la identidad en memoria y enviará al login. Si `EventSource` queda `CLOSED`, aplicará el mismo flujo y creará una nueva conexión tras refrescar. | Propuesta mínima adoptada por el proyecto; pendiente de confirmación |
 | D-22 | Los JWT incluirán el claim `tipo` con valor `access` o `refresh`. El filtro de autenticación aceptará únicamente `access`; `POST /api/v1/auth/refresh` aceptará únicamente `refresh`. No se implementa rotación del refresh token, de acuerdo con el alcance descrito en la guía. | Pendiente de confirmación |
 | D-23 | El executor BCrypt tendrá `foodstore.bcrypt.max-concurrente=2`, con una cola acotada de 8 trabajos (`4 × concurrencia`) y rechazo inmediato al llenarse (`AbortPolicy`). El límite será configurable; no se permitirá una cola ilimitada. | Valor elegido por el proyecto; no fijado por la guía |
+| D-25 | Agregar `GET /api/v1/roles`, público y de solo lectura, con una lista no paginada de los códigos de la tabla `rol`, ordenados y sin datos de usuarios. | Decisión del proyecto; endpoint pendiente de implementación y no confirmada por la cátedra |
 | D-28 | `SesionInfo.expira_en` informará el vencimiento del access token (30 minutos), no el vencimiento del refresh token (7 días) ni la duración total de la sesión. | Pendiente de confirmación |
 | D-29 | Los errores de validación responderán HTTP 422 con código `CUERPO_INVALIDO` y la lista de campos inválidos. El rechazo por saturación del executor BCrypt responderá HTTP 503 con código `SERVICIO_SATURADO`. | Propuesta mínima adoptada por el proyecto; pendiente de confirmación |
 
@@ -42,4 +45,4 @@ cd backend
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=api
 ```
 
-Para desarrollo sin HTTPS en `localhost`, se puede configurar `AUTH_COOKIE_SECURE=false`; mantener `AUTH_COOKIE_SAME_SITE=Lax`. Docker Compose y el enrutamiento mismo-origen todavía no forman parte de esta etapa.
+Para desarrollo sin HTTPS en `localhost`, se puede configurar `AUTH_COOKIE_SECURE=false`; mantener `AUTH_COOKIE_SAME_SITE=Lax`. El proxy de Vite adoptado para D-11 y el refresh/reintento de D-14 quedan para la etapa frontend; la parte de Docker Compose de D-11 sigue pendiente.

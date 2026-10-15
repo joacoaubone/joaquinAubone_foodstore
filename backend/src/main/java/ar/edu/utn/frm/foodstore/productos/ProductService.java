@@ -36,4 +36,12 @@ public class ProductService {
         productRepository.update(productId, name, price, available);
         return productRepository.findById(productId).orElseThrow(() -> new ProductNotFoundException(productId));
     }
+
+    @Transactional(readOnly = true)
+    public PageResponse<ProductRead> list(int page, int size) {
+        if (page < 0 || size <= 0) {
+            throw new InvalidPaginationException(page, size);
+        }
+        return productRepository.findPage(page, size);
+    }
 }

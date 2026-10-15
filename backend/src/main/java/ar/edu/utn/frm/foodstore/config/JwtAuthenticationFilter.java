@@ -46,7 +46,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 path = path.substring(contextPath.length());
             }
         }
-        if ("GET".equalsIgnoreCase(request.getMethod()) && "/api/v1/roles".equals(path)) {
+        if ("GET".equalsIgnoreCase(request.getMethod())
+                && ("/api/v1/roles".equals(path) || "/api/v1/productos".equals(path))) {
             return true;
         }
         if (!"POST".equalsIgnoreCase(request.getMethod())) {

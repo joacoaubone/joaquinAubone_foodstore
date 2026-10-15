@@ -495,6 +495,42 @@ class FoodstoreBackendApplicationTests {
     }
 
     @Test
+    void productCatalogIsPublicPaginatedAndUsesTheAgreedEnvelope() throws Exception {
+        jdbcTemplate.execute("TRUNCATE TABLE movimiento_stock, producto RESTART IDENTITY CASCADE");
+        String suffix = UUID.randomUUID().toString();
+        insertTestProduct("page-a-" + suffix, "1.25", 3, true);
+        insertTestProduct("page-b-" + suffix, "2.50", 7, false);
+        insertTestProduct("page-c-" + suffix, "3.75", 0, true);
+
+        var firstPage = mockMvc.perform(get("/api/v1/productos")
+                        .param("page", "0")
+                        .param("size", "2")
+                        .cookie(new Cookie("access_token", "malformed-token")))
+                .andReturn()
+                .getResponse();
+        var secondPage = mockMvc.perform(get("/api/v1/productos")
+                        .param("page", "1")
+                        .param("size", "2"))
+                .andReturn()
+                .getResponse();
+
+        assertThat(firstPage.getStatus()).isEqualTo(200);
+        assertThat(firstPage.getContentAsString())
+                .contains("\"total\":3", "\"page\":0", "\"size\":2", "\"precio\":\"1.25\"");
+        assertThat(firstPage.getContentAsString()).contains("\"items\":[");
+        assertThat(secondPage.getStatus()).isEqualTo(200);
+        assertThat(secondPage.getContentAsString())
+                .contains("\"total\":3", "\"page\":1", "\"size\":2", "page-c-" + suffix);
+    }
+
+    private void insertTestProduct(String name, String price, int stock, boolean available) {
+        jdbcTemplate.update("""
+                INSERT INTO producto (nombre, precio, stock_cantidad, disponible)
+                VALUES (?, CAST(? AS NUMERIC(10,2)), ?, ?)
+                """, name, price, stock, available);
+    }
+
+    @Test
     void invalidRequestBodyUsesTheAdoptedProblemCodeAndFieldList() throws Exception {
         var response = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                         .post("/api/v1/auth/register")

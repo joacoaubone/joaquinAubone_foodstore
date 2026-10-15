@@ -33,6 +33,18 @@ public class ProductRepository {
         return products.stream().findFirst();
     }
 
+    public PageResponse<ProductRead> findPage(int page, int size) {
+        long offset = (long) page * size;
+        List<ProductRead> items = jdbcTemplate.query("""
+                SELECT id, nombre, precio, stock_cantidad, disponible, creado_en
+                FROM producto
+                ORDER BY id
+                LIMIT ? OFFSET ?
+                """, ProductRepository::mapProduct, size, offset);
+        Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM producto", Long.class);
+        return new PageResponse<>(items, total == null ? 0L : total, page, size);
+    }
+
     public void update(long id, String name, BigDecimal price, boolean available) {
         int updated = jdbcTemplate.update("""
                 UPDATE producto

@@ -57,7 +57,7 @@ public class ApiSecurityConfiguration {
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/refresh")
                         .permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/roles")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/roles", "/api/v1/productos")
                         .permitAll()
                         .anyRequest()
                         .authenticated())

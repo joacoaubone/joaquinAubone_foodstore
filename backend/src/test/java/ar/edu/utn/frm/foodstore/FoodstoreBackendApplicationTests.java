@@ -409,6 +409,113 @@ class FoodstoreBackendApplicationTests {
     }
 
     @Test
+    void stockMovementEndpointsMaintainTheLedgerAndPaginatedReadModel() throws Exception {
+        long productId = createProduct("movement-ledger-" + UUID.randomUUID());
+        String adminToken = adminAccessToken();
+
+        var entry = postStockMovement(productId, "ENTRADA", 10, adminToken).getResponse();
+        var adjustment = postStockMovement(productId, "AJUSTE_MANUAL", -3, adminToken).getResponse();
+        var firstPage = mockMvc.perform(get("/api/v1/movimientos-stock")
+                        .param("page", "0")
+                        .param("size", "1")
+                        .param("producto_id", Long.toString(productId))
+                        .cookie(new Cookie("access_token", adminToken)))
+                .andReturn()
+                .getResponse();
+        Long stockQuantity = jdbcTemplate.queryForObject(
+                "SELECT stock_cantidad FROM producto WHERE id = ?", Long.class, productId);
+        Long ledgerTotal = jdbcTemplate.queryForObject(
+                "SELECT COALESCE(SUM(cantidad), 0) FROM movimiento_stock WHERE producto_id = ?",
+                Long.class,
+                productId);
+
+        assertThat(entry.getStatus()).isEqualTo(201);
+        assertThat(adjustment.getStatus()).isEqualTo(201);
+        assertThat(stockQuantity).isEqualTo(7L);
+        assertThat(ledgerTotal).isEqualTo(stockQuantity);
+        assertThat(firstPage.getStatus()).isEqualTo(200);
+        assertThat(firstPage.getContentAsString())
+                .contains("\"total\":2", "\"page\":0", "\"size\":1", "producto_id");
+        assertThat(firstPage.getContentAsString()).contains("\"items\":[");
+    }
+
+    @Test
+    void invalidAndInsufficientStockMovementsLeaveProductAndLedgerUnchanged() throws Exception {
+        long productId = createProduct("movement-rollback-" + UUID.randomUUID());
+        String adminToken = adminAccessToken();
+        postStockMovement(productId, "ENTRADA", 5, adminToken);
+
+        var insufficient = postStockMovement(productId, "AJUSTE_MANUAL", -6, adminToken).getResponse();
+        var zeroAdjustment = postStockMovement(productId, "AJUSTE_MANUAL", 0, adminToken).getResponse();
+        Long stockQuantity = jdbcTemplate.queryForObject(
+                "SELECT stock_cantidad FROM producto WHERE id = ?", Long.class, productId);
+        Long movementCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM movimiento_stock WHERE producto_id = ?", Long.class, productId);
+
+        assertThat(insufficient.getStatus()).isEqualTo(422);
+        assertThat(insufficient.getContentAsString()).contains("STOCK_INSUFICIENTE");
+        assertThat(zeroAdjustment.getStatus()).isEqualTo(422);
+        assertThat(zeroAdjustment.getContentAsString()).contains("CUERPO_INVALIDO");
+        assertThat(stockQuantity).isEqualTo(5L);
+        assertThat(movementCount).isEqualTo(1L);
+    }
+
+    @Test
+    void stockMovementPermissionsAndRowLocksPreventUnauthorizedOrNegativeUpdates() throws Exception {
+        long productId = createProduct("movement-lock-" + UUID.randomUUID());
+        String adminToken = adminAccessToken();
+        postStockMovement(productId, "ENTRADA", 10, adminToken);
+
+        String stockEmail = "stock-movement-" + UUID.randomUUID() + "@example.test";
+        var provisioned = createUser(stockEmail, "stock-password", "STOCK", adminToken).getResponse();
+        assertThat(provisioned.getStatus()).isEqualTo(201);
+        String stockToken = cookieValue(
+                login(stockEmail, "stock-password").getResponse().getHeaders("Set-Cookie"), "access_token");
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService concurrentRequests = Executors.newFixedThreadPool(2);
+
+        try {
+            var adjustment = (java.util.concurrent.Callable<Integer>) () -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Concurrent stock test did not start");
+                }
+                return postStockMovement(productId, "AJUSTE_MANUAL", -7, stockToken)
+                        .getResponse()
+                        .getStatus();
+            };
+            Future<Integer> first = concurrentRequests.submit(adjustment);
+            Future<Integer> second = concurrentRequests.submit(adjustment);
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            List<Integer> statuses = List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
+            assertThat(statuses).containsExactlyInAnyOrder(201, 422);
+        } finally {
+            start.countDown();
+            concurrentRequests.shutdownNow();
+        }
+
+        String clientEmail = "stock-denied-" + UUID.randomUUID() + "@example.test";
+        register(clientEmail, "client-password");
+        String clientToken = cookieValue(
+                login(clientEmail, "client-password").getResponse().getHeaders("Set-Cookie"), "access_token");
+        var denied = postStockMovement(productId, "AJUSTE_MANUAL", -1, clientToken).getResponse();
+        Long stockQuantity = jdbcTemplate.queryForObject(
+                "SELECT stock_cantidad FROM producto WHERE id = ?", Long.class, productId);
+        Long ledgerTotal = jdbcTemplate.queryForObject(
+                "SELECT COALESCE(SUM(cantidad), 0) FROM movimiento_stock WHERE producto_id = ?",
+                Long.class,
+                productId);
+
+        assertThat(denied.getStatus()).isEqualTo(403);
+        assertThat(denied.getContentAsString()).contains("ROL_INSUFICIENTE");
+        assertThat(stockQuantity).isEqualTo(3L);
+        assertThat(ledgerTotal).isEqualTo(stockQuantity);
+    }
+
+    @Test
     void loginRateLimitReturns429AfterFiveFailedAttemptsAndPersistsEveryAttempt() throws Exception {
         String email = "rate-limit-" + UUID.randomUUID() + "@example.test";
 
@@ -494,6 +601,35 @@ class FoodstoreBackendApplicationTests {
             request.cookie(new Cookie("access_token", accessToken));
         }
         return mockMvc.perform(request).andReturn();
+    }
+
+    private long createProduct(String name) {
+        return jdbcTemplate.queryForObject("""
+                INSERT INTO producto (nombre, precio, stock_cantidad, disponible)
+                VALUES (?, 12.50, 0, TRUE)
+                RETURNING id
+                """, Long.class, name);
+    }
+
+    private String adminAccessToken() throws Exception {
+        String password = "movement-admin-" + UUID.randomUUID();
+        jdbcTemplate.update(
+                "UPDATE usuario SET password_hash = ? WHERE email = 'admin@example.test'",
+                passwordHashingService.hash(password));
+        return cookieValue(
+                login("admin@example.test", password).getResponse().getHeaders("Set-Cookie"), "access_token");
+    }
+
+    private org.springframework.test.web.servlet.MvcResult postStockMovement(
+            long productId, String type, int quantity, String accessToken) throws Exception {
+        return mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/movimientos-stock")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .cookie(new Cookie("access_token", accessToken))
+                        .content("""
+                                {"producto_id":%d,"tipo":"%s","cantidad":%d}
+                                """.formatted(productId, type, quantity)))
+                .andReturn();
     }
 
     private static String cookieValue(List<String> cookies, String name) {

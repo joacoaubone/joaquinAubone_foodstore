@@ -5,6 +5,9 @@ import ar.edu.utn.frm.foodstore.auth.EmailAlreadyExistsException;
 import ar.edu.utn.frm.foodstore.auth.InvalidCredentialsException;
 import ar.edu.utn.frm.foodstore.auth.InvalidSessionException;
 import ar.edu.utn.frm.foodstore.auth.TooManyLoginAttemptsException;
+import ar.edu.utn.frm.foodstore.productos.InsufficientStockException;
+import ar.edu.utn.frm.foodstore.productos.InvalidPaginationException;
+import ar.edu.utn.frm.foodstore.productos.ProductNotFoundException;
 import java.util.List;
 import java.net.URI;
 import org.springframework.http.HttpStatus;
@@ -62,6 +65,38 @@ public class ApiExceptionHandler {
                 "Sesión inválida",
                 "La cookie de sesión no es válida.",
                 "SESION_INVALIDA");
+    }
+
+    @ExceptionHandler(ProductNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleProductNotFound(ProductNotFoundException exception) {
+        return problem(
+                HttpStatus.NOT_FOUND,
+                "Producto no encontrado",
+                exception.getMessage(),
+                "RECURSO_NO_ENCONTRADO");
+    }
+
+    @ExceptionHandler(InsufficientStockException.class)
+    public ResponseEntity<ProblemDetail> handleInsufficientStock(InsufficientStockException exception) {
+        return problem(
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                "Stock insuficiente",
+                exception.getMessage(),
+                "STOCK_INSUFICIENTE");
+    }
+
+    @ExceptionHandler(InvalidPaginationException.class)
+    public ResponseEntity<ProblemDetail> handleInvalidPagination(InvalidPaginationException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                exception.getMessage());
+        problem.setType(URI.create("about:blank"));
+        problem.setTitle("Paginación inválida");
+        problem.setProperty("codigo", "CUERPO_INVALIDO");
+        problem.setProperty("campos", List.of("page", "size"));
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problem);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

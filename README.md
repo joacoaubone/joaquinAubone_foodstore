@@ -10,11 +10,14 @@ Fecha de registro: 14 de octubre de 2026.
 | --- | --- | --- |
 | D-11 | En desarrollo, Vite reenviará `/api` al backend para que el navegador use un solo origen y las cookies viajen sin CORS adicional. La topología para servir el frontend desde Docker Compose queda pendiente. | Adoptada para desarrollo; Compose pendiente |
 | D-14 | Ante un `401` de `fetch`, el cliente llamará a `/api/v1/auth/refresh` una sola vez y repetirá la petición original una sola vez. Si el refresh falla, limpiará la identidad en memoria y enviará al login. Si `EventSource` queda `CLOSED`, aplicará el mismo flujo y creará una nueva conexión tras refrescar. | Propuesta mínima adoptada por el proyecto; pendiente de confirmación |
+| D-18 | Caché de productos con clave `fs:productos:list:{page}:{size}`, TTL de 60 segundos e invalidación solo por TTL, sin invalidación explícita al cambiar producto o stock. | Propuesta mínima adoptada por el proyecto; no confirmada por la cátedra |
 | D-22 | Los JWT incluirán el claim `tipo` con valor `access` o `refresh`. El filtro de autenticación aceptará únicamente `access`; `POST /api/v1/auth/refresh` aceptará únicamente `refresh`. No se implementa rotación del refresh token, de acuerdo con el alcance descrito en la guía. | Pendiente de confirmación |
 | D-23 | El executor BCrypt tendrá `foodstore.bcrypt.max-concurrente=2`, con una cola acotada de 8 trabajos (`4 × concurrencia`) y rechazo inmediato al llenarse (`AbortPolicy`). El límite será configurable; no se permitirá una cola ilimitada. | Valor elegido por el proyecto; no fijado por la guía |
 | D-25 | Agregar `GET /api/v1/roles`, público y de solo lectura, con una lista no paginada de los códigos de la tabla `rol`, ordenados y sin datos de usuarios. | Decisión del proyecto; endpoint pendiente de implementación y no confirmada por la cátedra |
 | D-28 | `SesionInfo.expira_en` informará el vencimiento del access token (30 minutos), no el vencimiento del refresh token (7 días) ni la duración total de la sesión. | Pendiente de confirmación |
 | D-29 | Los errores de validación responderán HTTP 422 con código `CUERPO_INVALIDO` y la lista de campos inválidos. El rechazo por saturación del executor BCrypt responderá HTTP 503 con código `SERVICIO_SATURADO`. | Propuesta mínima adoptada por el proyecto; pendiente de confirmación |
+| D-30 | `STOCK` puede leer el catálogo y crear/listar movimientos de stock; solo `ADMIN` puede crear o editar productos. | Propuesta mínima adoptada por el proyecto; no confirmada por la cátedra |
+| D-31 | Todas las colecciones paginadas responderán `{items, total, page, size}`; no se expondrá la serialización nativa de Spring `Page`. | Propuesta mínima adoptada por el proyecto; no confirmada por la cátedra |
 
 ### Criterio adicional del proyecto
 

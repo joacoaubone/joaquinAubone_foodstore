@@ -8,7 +8,7 @@ La consigna Food Store v6 identifica los siguientes puntos como pendientes en el
 | D-14 | Renovación de sesión y recuperación de SSE al vencer el access token | Medio | Propuesta mínima adoptada por el proyecto; pendiente de confirmación |
 | D-16 | Cobertura de pruebas de reglas y su ponderación en la rúbrica | Medio | Pendiente |
 | D-17 | Datos administrativos y organización de la entrega | Medio | Pendiente |
-| D-18 | Dimensiones e invalidación de la clave de caché del catálogo | Medio | Pendiente |
+| D-18 | Dimensiones e invalidación de la clave de caché del catálogo | Medio | Propuesta mínima adoptada por el proyecto; no confirmada por la cátedra |
 | D-19 | Valor de `actor_rol` cuando el usuario tiene múltiples roles o actúa como propietario | Bajo | Pendiente |
 | D-20 | Intervalo de publicación del outbox | Bajo | Pendiente |
 | D-21 | Roles autorizados para crear pedidos | Bajo | Pendiente |
@@ -19,8 +19,8 @@ La consigna Food Store v6 identifica los siguientes puntos como pendientes en el
 | D-27 | Significado de la mención a la emisión de refresh tokens | Bajo | Pendiente |
 | D-28 | Vencimiento que informa `SesionInfo.expira_en` | Bajo | Adoptada por el proyecto; pendiente de confirmación |
 | D-29 | Códigos internos para errores de validación y saturación del executor | Medio | Propuesta mínima adoptada por el proyecto; pendiente de confirmación |
-| D-30 | Permisos efectivos del rol STOCK para crear/editar productos | Medio | Pendiente |
-| D-31 | Estructura de respuesta para colecciones paginadas | Medio | Pendiente |
+| D-30 | Permisos efectivos del rol STOCK para crear/editar productos | Medio | Propuesta mínima adoptada por el proyecto; no confirmada por la cátedra |
+| D-31 | Estructura de respuesta para colecciones paginadas | Medio | Propuesta mínima adoptada por el proyecto; no confirmada por la cátedra |
 | D-32 | Tipos de evento y campos del payload para cambios de estado | Medio | Pendiente |
 | D-33 | Campos de pedido y pago que deben devolverse al cliente | Medio | Pendiente |
 | D-34 | Política de reintentos y correlación para todas las tareas programadas | Bajo | Pendiente |

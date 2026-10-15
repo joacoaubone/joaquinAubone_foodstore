@@ -1,6 +1,7 @@
 package ar.edu.utn.frm.foodstore.productos;
 
 import java.math.BigDecimal;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -9,10 +10,15 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final StockMovementService stockMovementService;
+    private final ProductCatalogCache productCatalogCache;
 
-    public ProductService(ProductRepository productRepository, StockMovementService stockMovementService) {
+    public ProductService(
+            ProductRepository productRepository,
+            StockMovementService stockMovementService,
+            ProductCatalogCache productCatalogCache) {
         this.productRepository = productRepository;
         this.stockMovementService = stockMovementService;
+        this.productCatalogCache = productCatalogCache;
     }
 
     @Transactional
@@ -42,6 +48,21 @@ public class ProductService {
         if (page < 0 || size <= 0) {
             throw new InvalidPaginationException(page, size);
         }
-        return productRepository.findPage(page, size);
+        try {
+            var cached = productCatalogCache.get(page, size);
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+        } catch (DataAccessException exception) {
+            // Redis is an accelerator; a failure falls through to PostgreSQL.
+        }
+
+        PageResponse<ProductRead> products = productRepository.findPage(page, size);
+        try {
+            productCatalogCache.put(page, size, products);
+        } catch (DataAccessException exception) {
+            // A cache write failure does not invalidate the database-backed response.
+        }
+        return products;
     }
 }

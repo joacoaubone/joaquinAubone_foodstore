@@ -34,6 +34,7 @@ El registro detallado de decisiones pendientes y adoptadas está en [`docs/decis
 ### Productos y stock
 
 - `GET /api/v1/productos?page=...&size=...`: catálogo público paginado con el envelope `{items,total,page,size}` adoptado para D-31; los importes se devuelven como cadenas decimales.
+- El catálogo usa Redis con clave `fs:productos:list:{page}:{size}` y TTL de 60 s, sin invalidación explícita; si Redis falla, las lecturas van a PostgreSQL (D-18).
 - `POST /api/v1/productos` y `PATCH /api/v1/productos/{id}`: solo `ADMIN`, según el criterio de proyecto adoptado para D-30. Editar un producto no modifica stock.
 - Al crear un producto con stock inicial positivo, se registra una entrada en `movimiento_stock` dentro de la misma transacción; el stock no se escribe por separado del ledger.
 - `POST /api/v1/movimientos-stock` y `GET /api/v1/movimientos-stock`: accesibles a `ADMIN` y `STOCK`. El listado se puede filtrar por `producto_id`.

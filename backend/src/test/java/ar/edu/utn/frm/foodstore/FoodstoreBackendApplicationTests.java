@@ -16,6 +16,12 @@ import ar.edu.utn.frm.foodstore.auth.LoginAttemptRepository;
 import ar.edu.utn.frm.foodstore.auth.TooManyLoginAttemptsException;
 import ar.edu.utn.frm.foodstore.auth.UserAccountRepository;
 import ar.edu.utn.frm.foodstore.auth.SessionCookieFactory;
+import ar.edu.utn.frm.foodstore.productos.PageResponse;
+import ar.edu.utn.frm.foodstore.productos.ProductCatalogCache;
+import ar.edu.utn.frm.foodstore.productos.ProductRead;
+import ar.edu.utn.frm.foodstore.productos.ProductRepository;
+import ar.edu.utn.frm.foodstore.productos.ProductService;
+import ar.edu.utn.frm.foodstore.productos.StockMovementService;
 import ar.edu.utn.frm.foodstore.core.ports.LoginAttemptRedisPort;
 import jakarta.servlet.http.Cookie;
 import org.springframework.test.context.ActiveProfiles;
@@ -27,6 +33,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.time.Duration;
 import java.util.Map;
@@ -80,6 +87,15 @@ class FoodstoreBackendApplicationTests {
 
     @Autowired
     SessionCookieFactory sessionCookieFactory;
+
+    @Autowired
+    StringRedisTemplate redisTemplate;
+
+    @Autowired
+    ProductRepository productRepository;
+
+    @Autowired
+    StockMovementService stockMovementService;
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -521,6 +537,64 @@ class FoodstoreBackendApplicationTests {
         assertThat(secondPage.getStatus()).isEqualTo(200);
         assertThat(secondPage.getContentAsString())
                 .contains("\"total\":3", "\"page\":1", "\"size\":2", "page-c-" + suffix);
+    }
+
+    @Test
+    void productCatalogCacheSeparatesSizesAndExpiresOnlyByTtl() throws Exception {
+        jdbcTemplate.execute("TRUNCATE TABLE movimiento_stock, producto RESTART IDENTITY CASCADE");
+        redisTemplate.delete(List.of("fs:productos:list:0:1", "fs:productos:list:0:2"));
+        String initialName = "cached-product-" + UUID.randomUUID();
+        insertTestProduct(initialName, "4.50", 2, true);
+
+        var cachedFirstPage = mockMvc.perform(get("/api/v1/productos")
+                        .param("page", "0")
+                        .param("size", "1"))
+                .andReturn()
+                .getResponse();
+        jdbcTemplate.update("UPDATE producto SET nombre = ? WHERE id = 1", "updated-" + initialName);
+        var sameCacheKey = mockMvc.perform(get("/api/v1/productos")
+                        .param("page", "0")
+                        .param("size", "1"))
+                .andReturn()
+                .getResponse();
+        var differentSize = mockMvc.perform(get("/api/v1/productos")
+                        .param("page", "0")
+                        .param("size", "2"))
+                .andReturn()
+                .getResponse();
+
+        assertThat(cachedFirstPage.getStatus()).isEqualTo(200);
+        assertThat(cachedFirstPage.getContentAsString()).contains(initialName);
+        assertThat(sameCacheKey.getContentAsString()).contains(initialName).doesNotContain("updated-");
+        assertThat(differentSize.getContentAsString()).contains("updated-" + initialName);
+        assertThat(redisTemplate.hasKey("fs:productos:list:0:1")).isTrue();
+        assertThat(redisTemplate.hasKey("fs:productos:list:0:2")).isTrue();
+        Long ttl = redisTemplate.getExpire("fs:productos:list:0:1", TimeUnit.SECONDS);
+        assertThat(ttl).isPositive().isLessThanOrEqualTo(60);
+    }
+
+    @Test
+    void productCatalogFallsBackToPostgresWhenRedisCacheFails() {
+        jdbcTemplate.execute("TRUNCATE TABLE movimiento_stock, producto RESTART IDENTITY CASCADE");
+        String name = "uncached-product-" + UUID.randomUUID();
+        insertTestProduct(name, "8.25", 5, true);
+        ProductCatalogCache unavailableCache = new ProductCatalogCache() {
+            @Override
+            public java.util.Optional<PageResponse<ProductRead>> get(int page, int size) {
+                throw new RedisConnectionFailureException("Redis de prueba no disponible");
+            }
+
+            @Override
+            public void put(int page, int size, PageResponse<ProductRead> products) {
+                throw new RedisConnectionFailureException("Redis de prueba no disponible");
+            }
+        };
+        ProductService service = new ProductService(productRepository, stockMovementService, unavailableCache);
+
+        PageResponse<ProductRead> response = service.list(0, 10);
+
+        assertThat(response.items()).extracting(ProductRead::nombre).containsExactly(name);
+        assertThat(response.items().getFirst().stockCantidad()).isEqualTo(5);
     }
 
     private void insertTestProduct(String name, String price, int stock, boolean available) {

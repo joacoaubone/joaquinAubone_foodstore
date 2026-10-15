@@ -31,6 +31,13 @@ El registro detallado de decisiones pendientes y adoptadas está en [`docs/decis
 
 `GET /api/v1/roles` es público y devuelve únicamente los códigos de rol ordenados (`ADMIN`, `CLIENTE`, `PEDIDOS`, `STOCK`). No expone usuarios ni credenciales; la decisión de proyecto D-25 no está confirmada por la cátedra.
 
+### Productos y stock
+
+- `POST /api/v1/productos` y `PATCH /api/v1/productos/{id}`: solo `ADMIN`, según el criterio de proyecto adoptado para D-30. Editar un producto no modifica stock.
+- Al crear un producto con stock inicial positivo, se registra una entrada en `movimiento_stock` dentro de la misma transacción; el stock no se escribe por separado del ledger.
+- `POST /api/v1/movimientos-stock` y `GET /api/v1/movimientos-stock`: accesibles a `ADMIN` y `STOCK`. El listado se puede filtrar por `producto_id`.
+- Las rutas de lectura de productos y su caché paginada se completan en las tareas 3.4 y 3.5; sus decisiones D-31 y D-18 ya están registradas arriba.
+
 La API requiere PostgreSQL 16 y Redis 7.4 accesibles localmente. Copiá `.env.example` a `.env`, reemplazá todos los marcadores y exportá sus variables antes de iniciar. `JWT_SECRET` debe ser Base64 de al menos 32 bytes aleatorios y `ADMIN_PASSWORD_HASH` un hash BCrypt strength 12; no pongas los valores reales en este README ni en Git. El `.gitignore` excluye `.env` y conserva `.env.example` versionado.
 
 Desde la raíz del repositorio, en macOS/Linux:

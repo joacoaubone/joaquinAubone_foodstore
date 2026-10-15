@@ -407,6 +407,94 @@ class FoodstoreBackendApplicationTests {
     }
 
     @Test
+    void productCreationUsesStockLedgerAndOnlyAdminCanCreateOrEditProducts() throws Exception {
+        String adminToken = adminAccessToken();
+        String productName = "product-" + UUID.randomUUID();
+        var created = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/productos")
+                        .cookie(new Cookie("access_token", adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":"%s","precio":12.50,"stock_cantidad":9,"disponible":true}
+                                """.formatted(productName)))
+                .andReturn()
+                .getResponse();
+
+        assertThat(created.getStatus()).isEqualTo(201);
+        assertThat(created.getContentAsString()).contains("\"precio\":\"12.50\"", "\"stock_cantidad\":9");
+        Long productId = jdbcTemplate.queryForObject(
+                "SELECT id FROM producto WHERE nombre = ?", Long.class, productName);
+        Long movementCountAfterCreate = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM movimiento_stock WHERE producto_id = ?", Long.class, productId);
+
+        var updated = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .patch("/api/v1/productos/{id}", productId)
+                        .cookie(new Cookie("access_token", adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":"%s-updated","precio":15.00,"disponible":false,"stock_cantidad":99}
+                                """.formatted(productName)))
+                .andReturn()
+                .getResponse();
+        Long stockAfterUpdate = jdbcTemplate.queryForObject(
+                "SELECT stock_cantidad FROM producto WHERE id = ?", Long.class, productId);
+        Long movementCountAfterUpdate = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM movimiento_stock WHERE producto_id = ?", Long.class, productId);
+
+        assertThat(updated.getStatus()).isEqualTo(200);
+        assertThat(updated.getContentAsString()).contains("\"precio\":\"15.00\"", "\"disponible\":false");
+        assertThat(stockAfterUpdate).isEqualTo(9L);
+        assertThat(movementCountAfterUpdate).isEqualTo(movementCountAfterCreate);
+
+        String stockEmail = "stock-product-" + UUID.randomUUID() + "@example.test";
+        var stockUser = createUser(stockEmail, "stock-password", "STOCK", adminToken).getResponse();
+        assertThat(stockUser.getStatus()).isEqualTo(201);
+        String stockToken = cookieValue(
+                login(stockEmail, "stock-password").getResponse().getHeaders("Set-Cookie"), "access_token");
+        String forbiddenProductName = "forbidden-" + UUID.randomUUID();
+        var forbiddenCreate = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/productos")
+                        .cookie(new Cookie("access_token", stockToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":"%s","precio":1.00,"stock_cantidad":0,"disponible":true}
+                                """.formatted(forbiddenProductName)))
+                .andReturn()
+                .getResponse();
+        var forbiddenUpdate = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .patch("/api/v1/productos/{id}", productId)
+                        .cookie(new Cookie("access_token", stockToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"precio\":20.00}"))
+                .andReturn()
+                .getResponse();
+
+        assertThat(forbiddenCreate.getStatus()).isEqualTo(403);
+        assertThat(forbiddenUpdate.getStatus()).isEqualTo(403);
+        assertThat(forbiddenCreate.getContentAsString()).contains("ROL_INSUFICIENTE");
+        Long forbiddenProductCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM producto WHERE nombre = ?", Long.class, forbiddenProductName);
+        assertThat(forbiddenProductCount).isZero();
+    }
+
+    @Test
+    void productValidationRejectsInvalidNameAndPrice() throws Exception {
+        String adminToken = adminAccessToken();
+        var response = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/productos")
+                        .cookie(new Cookie("access_token", adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":" ","precio":0,"stock_cantidad":0,"disponible":true}
+                                """))
+                .andReturn()
+                .getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(422);
+        assertThat(response.getContentAsString()).contains("CUERPO_INVALIDO", "nombre", "precio");
+    }
+
+    @Test
     void invalidRequestBodyUsesTheAdoptedProblemCodeAndFieldList() throws Exception {
         var response = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                         .post("/api/v1/auth/register")

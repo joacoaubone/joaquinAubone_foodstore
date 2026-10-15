@@ -38,10 +38,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getServletPath();
+        if (path == null || path.isBlank()) {
+            path = request.getRequestURI();
+            String contextPath = request.getContextPath();
+            if (contextPath != null && !contextPath.isEmpty() && path.startsWith(contextPath)) {
+                path = path.substring(contextPath.length());
+            }
+        }
+        if ("GET".equalsIgnoreCase(request.getMethod()) && "/api/v1/roles".equals(path)) {
+            return true;
+        }
         if (!"POST".equalsIgnoreCase(request.getMethod())) {
             return false;
         }
-        String path = request.getServletPath();
         return REGISTER_PATH.equals(path) || LOGIN_PATH.equals(path) || REFRESH_PATH.equals(path);
     }
 

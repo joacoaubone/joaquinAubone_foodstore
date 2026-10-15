@@ -393,6 +393,20 @@ class FoodstoreBackendApplicationTests {
     }
 
     @Test
+    void rolesCatalogIsPublicOrderedAndContainsNoAccountData() throws Exception {
+        var response = mockMvc.perform(get("/api/v1/roles")
+                        .cookie(new Cookie("access_token", "malformed-session-cookie")))
+                .andReturn()
+                .getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getContentType()).isEqualTo(MediaType.APPLICATION_JSON_VALUE);
+        assertThat(response.getContentAsString())
+                .isEqualTo("[\"ADMIN\",\"CLIENTE\",\"PEDIDOS\",\"STOCK\"]");
+        assertThat(response.getContentAsString()).doesNotContain("email", "password", "usuario");
+    }
+
+    @Test
     void invalidRequestBodyUsesTheAdoptedProblemCodeAndFieldList() throws Exception {
         var response = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                         .post("/api/v1/auth/register")

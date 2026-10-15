@@ -15,7 +15,7 @@ La consigna Food Store v6 identifica los siguientes puntos como pendientes en el
 | D-22 | Diferenciación y uso permitido de access token y refresh token | Medio | Adoptada por el proyecto; pendiente de confirmación |
 | D-23 | Capacidad y configuración del executor de BCrypt | Bajo | Adoptada por el proyecto; valor no fijado por la guía |
 | D-24 | Alcance del listado de ingresos por período | Medio | Pendiente |
-| D-25 | Necesidad de un endpoint para consultar el catálogo de roles | Bajo | Endpoint público adoptado; implementación pendiente, no confirmado por la cátedra |
+| D-25 | Necesidad de un endpoint para consultar el catálogo de roles | Bajo | Endpoint público adoptado e implementado; no confirmado por la cátedra |
 | D-27 | Significado de la mención a la emisión de refresh tokens | Bajo | Pendiente |
 | D-28 | Vencimiento que informa `SesionInfo.expira_en` | Bajo | Adoptada por el proyecto; pendiente de confirmación |
 | D-29 | Códigos internos para errores de validación y saturación del executor | Medio | Propuesta mínima adoptada por el proyecto; pendiente de confirmación |
